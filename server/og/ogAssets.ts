@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
+import { initWasm } from '@resvg/resvg-wasm'
 
 export const FONT_SANS = 'Bricolage Grotesque'
 export const FONT_MONO = 'IBM Plex Mono'
@@ -11,6 +12,7 @@ type GlobalNitroMain = {
 let markDataUrlPromise: Promise<string> | null = null
 let resvgWasmPromise: Promise<Uint8Array> | null = null
 let fontBuffersPromise: Promise<Uint8Array[]> | null = null
+let resvgInitPromise: Promise<void> | null = null
 
 function getServerRootUrl() {
   const nitroMain = (globalThis as unknown as GlobalNitroMain).__nitro_main__
@@ -54,6 +56,13 @@ export async function getResvgWasm() {
     )
   }
   return resvgWasmPromise
+}
+
+export async function ensureResvgWasm() {
+  if (!resvgInitPromise) {
+    resvgInitPromise = getResvgWasm().then((wasm) => initWasm(wasm))
+  }
+  await resvgInitPromise
 }
 
 export async function getFontBuffers() {

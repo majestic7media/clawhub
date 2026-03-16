@@ -1,14 +1,14 @@
-import { initWasm, Resvg } from '@resvg/resvg-wasm'
+import { Resvg } from '@resvg/resvg-wasm'
 import { defineEventHandler, getQuery, getRequestHost, setHeader } from 'h3'
 
 import type { SoulOgMeta } from '../../og/fetchSoulOgMeta'
 import { fetchSoulOgMeta } from '../../og/fetchSoulOgMeta'
 import {
+  ensureResvgWasm,
   FONT_MONO,
   FONT_SANS,
   getFontBuffers,
   getMarkDataUrl,
-  getResvgWasm,
 } from '../../og/ogAssets'
 import { buildSoulOgSvg } from '../../og/soulOgSvg'
 
@@ -20,8 +20,6 @@ type OgQuery = {
   description?: string
   v?: string
 }
-
-let wasmInitPromise: Promise<void> | null = null
 
 function cleanString(value: unknown) {
   if (typeof value !== 'string') return ''
@@ -37,13 +35,6 @@ function getApiBase(eventHost: string | null) {
 
   if (eventHost) return `https://${eventHost}`
   return 'https://onlycrabs.ai'
-}
-
-async function ensureWasm() {
-  if (!wasmInitPromise) {
-    wasmInitPromise = getResvgWasm().then((wasm) => initWasm(wasm))
-  }
-  await wasmInitPromise
 }
 
 function buildFooter(slug: string, owner: string | null) {
@@ -84,7 +75,7 @@ export default defineEventHandler(async (event) => {
 
   const [markDataUrl, fontBuffers] = await Promise.all([
     getMarkDataUrl(),
-    ensureWasm().then(() => getFontBuffers()),
+    ensureResvgWasm().then(() => getFontBuffers()),
   ])
 
   const svg = buildSoulOgSvg({

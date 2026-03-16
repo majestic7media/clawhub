@@ -6,7 +6,7 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "bun --bun vite build",
+    "build": "bun --bun vite build && bun scripts/copy-og-assets.ts",
     "check:peers": "bun scripts/check-peer-deps.ts",
     "convex:deploy": "bunx convex deploy --typecheck=disable --yes",
     "coverage": "vitest run --coverage",
