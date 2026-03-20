@@ -37,6 +37,28 @@ const internalRefs = internal as unknown as {
   };
 };
 type DbReaderCtx = Pick<QueryCtx | MutationCtx, "db">;
+type PublicPackageListItem = {
+  name: string;
+  displayName: string;
+  family: PackageFamily;
+  runtimeId: string | null;
+  channel: PackageChannel;
+  isOfficial: boolean;
+  summary: string | null;
+  ownerHandle: string | null;
+  createdAt: number;
+  updatedAt: number;
+  latestVersion: string | null;
+  capabilityTags: string[];
+  executesCode: boolean;
+  verificationTier: Doc<"packageSearchDigest">["verificationTier"] | null;
+};
+type PublicPageCursorState = {
+  cursor: string | null;
+  done: boolean;
+  buffer: PublicPackageListItem[];
+};
+const PUBLIC_PAGE_CURSOR_PREFIX = "pkgpage:";
 
 async function runQueryRef<T>(
   ctx: { runQuery: (ref: never, args: never) => Promise<unknown> },
@@ -122,6 +144,47 @@ function digestMatchesFilters(
   return true;
 }
 
+function toPublicPackageListItem(digest: Doc<"packageSearchDigest">): PublicPackageListItem {
+  return {
+    name: digest.name,
+    displayName: digest.displayName,
+    family: digest.family,
+    runtimeId: digest.runtimeId ?? null,
+    channel: digest.channel,
+    isOfficial: digest.isOfficial,
+    summary: digest.summary ?? null,
+    ownerHandle: digest.ownerHandle || null,
+    createdAt: digest.createdAt,
+    updatedAt: digest.updatedAt,
+    latestVersion: digest.latestVersion ?? null,
+    capabilityTags: digest.capabilityTags ?? [],
+    executesCode: digest.executesCode ?? false,
+    verificationTier: digest.verificationTier ?? null,
+  };
+}
+
+function encodePublicPageCursor(state: PublicPageCursorState) {
+  if (state.done && state.buffer.length === 0) return "";
+  return `${PUBLIC_PAGE_CURSOR_PREFIX}${JSON.stringify(state)}`;
+}
+
+function decodePublicPageCursor(raw: string | null | undefined): PublicPageCursorState {
+  if (!raw) return { cursor: null, done: false, buffer: [] };
+  if (!raw.startsWith(PUBLIC_PAGE_CURSOR_PREFIX)) {
+    return { cursor: raw, done: false, buffer: [] };
+  }
+  try {
+    const parsed = JSON.parse(raw.slice(PUBLIC_PAGE_CURSOR_PREFIX.length)) as Partial<PublicPageCursorState>;
+    return {
+      cursor: typeof parsed.cursor === "string" ? parsed.cursor : null,
+      done: parsed.done === true,
+      buffer: Array.isArray(parsed.buffer) ? parsed.buffer : [],
+    };
+  } catch {
+    return { cursor: null, done: false, buffer: [] };
+  }
+}
+
 function packageSearchScore(digest: Doc<"packageSearchDigest">, queryText: string) {
   const needle = queryText.toLowerCase();
   const normalized = digest.normalizedName.toLowerCase();
@@ -152,10 +215,14 @@ async function getPackageByNormalizedName(ctx: DbReaderCtx, normalizedName: stri
 }
 
 export const getByName = query({
-  args: { name: v.string() },
+  args: {
+    name: v.string(),
+    viewerUserId: v.optional(v.id("users")),
+  },
   handler: async (ctx, args) => {
     const normalizedName = normalizePackageName(args.name);
     const pkg = await getPackageByNormalizedName(ctx, normalizedName);
+    if (pkg?.channel === "private" && pkg.ownerUserId !== args.viewerUserId) return null;
     const publicPackage = toPublicPackage(pkg);
     if (!publicPackage || !pkg) return null;
 
@@ -172,11 +239,15 @@ export const getByName = query({
 export const listVersions = query({
   args: {
     name: v.string(),
+    viewerUserId: v.optional(v.id("users")),
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
     const normalizedName = normalizePackageName(args.name);
     const pkg = await getPackageByNormalizedName(ctx, normalizedName);
+    if (pkg?.channel === "private" && pkg.ownerUserId !== args.viewerUserId) {
+      return { page: [], isDone: true, continueCursor: "" };
+    }
     if (!pkg || pkg.softDeletedAt) return { page: [], isDone: true, continueCursor: "" };
     return await ctx.db
       .query("packageReleases")
@@ -190,10 +261,12 @@ export const getVersionByName = query({
   args: {
     name: v.string(),
     version: v.string(),
+    viewerUserId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
     const normalizedName = normalizePackageName(args.name);
     const pkg = await getPackageByNormalizedName(ctx, normalizedName);
+    if (pkg?.channel === "private" && pkg.ownerUserId !== args.viewerUserId) return null;
     const publicPackage = toPublicPackage(pkg);
     if (!publicPackage || !pkg) return null;
     const release = await ctx.db
@@ -220,14 +293,24 @@ export const listPublicPage = query({
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
+    if (args.channel === "private") {
+      return { page: [], isDone: true, continueCursor: "" };
+    }
     const targetCount = args.paginationOpts.numItems;
-    const collected: Doc<"packageSearchDigest">[] = [];
-    let cursor = args.paginationOpts.cursor;
-    let done = false;
+    const collected: PublicPackageListItem[] = [];
+    const decodedCursor = decodePublicPageCursor(args.paginationOpts.cursor);
+    const buffered = [...decodedCursor.buffer];
+    let cursor = decodedCursor.cursor;
+    let done = decodedCursor.done;
     let loops = 0;
     const family = args.family;
     const channel = args.channel;
     const isOfficial = args.isOfficial;
+
+    while (buffered.length > 0 && collected.length < targetCount) {
+      const next = buffered.shift();
+      if (next) collected.push(next);
+    }
 
     while (!done && collected.length < targetCount && loops < 5) {
       loops += 1;
@@ -260,6 +343,7 @@ export const listPublicPage = query({
 
       const page = await builder.order("desc").paginate({ cursor, numItems: pageSize });
       for (const digest of page.page) {
+        if (digest.channel === "private") continue;
         if (channel && digest.channel !== channel) continue;
         if (
           typeof isOfficial === "boolean" &&
@@ -269,32 +353,20 @@ export const listPublicPage = query({
           continue;
         }
         if (!digestMatchesFilters(digest, args)) continue;
-        collected.push(digest);
-        if (collected.length >= targetCount) break;
+        buffered.push(toPublicPackageListItem(digest));
       }
       done = page.isDone;
       cursor = page.continueCursor;
+      while (buffered.length > 0 && collected.length < targetCount) {
+        const next = buffered.shift();
+        if (next) collected.push(next);
+      }
     }
 
     return {
-      page: collected.slice(0, targetCount).map((digest) => ({
-        name: digest.name,
-        displayName: digest.displayName,
-        family: digest.family,
-        runtimeId: digest.runtimeId ?? null,
-        channel: digest.channel,
-        isOfficial: digest.isOfficial,
-        summary: digest.summary ?? null,
-        ownerHandle: digest.ownerHandle || null,
-        createdAt: digest.createdAt,
-        updatedAt: digest.updatedAt,
-        latestVersion: digest.latestVersion ?? null,
-        capabilityTags: digest.capabilityTags ?? [],
-        executesCode: digest.executesCode ?? false,
-        verificationTier: digest.verificationTier ?? null,
-      })),
-      isDone: done && collected.length <= targetCount,
-      continueCursor: cursor,
+      page: collected,
+      isDone: done && buffered.length === 0,
+      continueCursor: encodePublicPageCursor({ cursor, done, buffer: buffered }),
     };
   },
 });
@@ -308,10 +380,13 @@ export const searchPublic = query({
     ),
     channel: v.optional(v.union(v.literal("official"), v.literal("community"), v.literal("private"))),
     isOfficial: v.optional(v.boolean()),
+    executesCode: v.optional(v.boolean()),
+    capabilityTag: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const queryText = args.query.trim().toLowerCase();
     if (!queryText) return [];
+    if (args.channel === "private") return [];
     const family = args.family;
     const base =
       family
@@ -329,28 +404,15 @@ export const searchPublic = query({
             .take(MAX_SEARCH_SCAN);
 
     const filtered = base
+      .filter((digest) => digest.channel !== "private")
       .filter((digest) => (args.channel ? digest.channel === args.channel : true))
       .filter((digest) =>
         typeof args.isOfficial === "boolean" ? digest.isOfficial === args.isOfficial : true,
       )
+      .filter((digest) => digestMatchesFilters(digest, args))
       .map((digest) => ({
         score: packageSearchScore(digest, queryText),
-        package: {
-          name: digest.name,
-          displayName: digest.displayName,
-          family: digest.family,
-          runtimeId: digest.runtimeId ?? null,
-          channel: digest.channel,
-          isOfficial: digest.isOfficial,
-          summary: digest.summary ?? null,
-          ownerHandle: digest.ownerHandle || null,
-          createdAt: digest.createdAt,
-          updatedAt: digest.updatedAt,
-          latestVersion: digest.latestVersion ?? null,
-          capabilityTags: digest.capabilityTags ?? [],
-          executesCode: digest.executesCode ?? false,
-          verificationTier: digest.verificationTier ?? null,
-        },
+        package: toPublicPackageListItem(digest),
       }))
       .filter((entry) => entry.score > 0)
       .sort(

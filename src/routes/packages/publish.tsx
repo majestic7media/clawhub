@@ -3,6 +3,7 @@ import { useAction, useMutation } from "convex/react";
 import { startTransition, useMemo, useState } from "react";
 import { api } from "../../../convex/_generated/api";
 import { expandDroppedItems, expandFilesWithReport } from "../../lib/uploadFiles";
+import { normalizePackageUploadPath } from "../../lib/packageUpload";
 import { useAuthStatus } from "../../lib/useAuthStatus";
 import { formatBytes, formatPublishError, hashFile, uploadFile } from "../upload/-utils";
 
@@ -162,8 +163,10 @@ function PublishPackageRoute() {
                   for (const file of files) {
                     const sha256 = await hashFile(file);
                     const storageId = await uploadFile(uploadUrl, file);
+                    const rawPath = file.webkitRelativePath || file.name;
+                    const path = normalizePackageUploadPath(rawPath) || file.name;
                     uploaded.push({
-                      path: file.webkitRelativePath || file.name,
+                      path,
                       size: file.size,
                       storageId,
                       sha256,

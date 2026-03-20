@@ -2230,6 +2230,45 @@ describe("httpApiV1 handlers", () => {
     expect(json.unstarred).toBe(true);
   });
 
+  it("packages search forwards executesCode and capabilityTag", async () => {
+    const runQuery = vi.fn().mockResolvedValue([]);
+    const response = await __handlers.packagesGetRouterV1Handler(
+      makeCtx({ runQuery }),
+      new Request(
+        "https://example.com/api/v1/packages/search?q=test&executesCode=true&capabilityTag=tools&limit=5",
+      ),
+    );
+    if (response.status !== 200) throw new Error(await response.text());
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        query: "test",
+        limit: 5,
+        executesCode: true,
+        capabilityTag: "tools",
+      }),
+    );
+  });
+
+  it("packages detail hides private packages from anonymous requests", async () => {
+    vi.mocked(getOptionalApiTokenUserId).mockResolvedValue(null);
+    const runQuery = vi.fn().mockResolvedValue(null);
+
+    const response = await __handlers.packagesGetRouterV1Handler(
+      makeCtx({ runQuery }),
+      new Request("https://example.com/api/v1/packages/private-plugin"),
+    );
+
+    expect(response.status).toBe(404);
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        name: "private-plugin",
+        viewerUserId: undefined,
+      }),
+    );
+  });
+
   it("delete/undelete map forbidden/not-found/unknown to 403/404/500", async () => {
     vi.mocked(requireApiTokenUser).mockResolvedValue({
       userId: "users:1",

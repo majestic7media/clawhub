@@ -2,6 +2,7 @@ import { PackagePublishRequestSchema, parseArk } from "clawhub-schema";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { getOptionalApiTokenUserId } from "../lib/apiTokenAuth";
 import { buildDeterministicZip } from "../lib/skillZip";
 import { isTextFile } from "../lib/skills";
 import {
@@ -73,13 +74,9 @@ async function resolvePackageTags(
 ): Promise<Record<string, string>> {
   const releaseIds = Object.values(tags);
   if (releaseIds.length === 0) return {};
-  const releases = await runQueryRef<ReleaseLike[]>(
-    ctx,
-    internalRefs.packages.getReleasesByIdsInternal,
-    {
+  const releases = await runQueryRef<ReleaseLike[]>(ctx, internalRefs.packages.getReleasesByIdsInternal, {
     releaseIds,
-    },
-  );
+  });
   const byId = new Map(releases.map((release) => [release._id, release.version]));
   return Object.fromEntries(
     Object.entries(tags)
@@ -226,8 +223,8 @@ async function getReleaseForRequest(
       ctx,
       internalRefs.packages.getReleaseByPackageAndVersionInternal,
       {
-      packageId: pkg._id,
-      version: versionParam,
+        packageId: pkg._id,
+        version: versionParam,
       },
     );
   }
@@ -255,6 +252,8 @@ export async function packagesGetRouterV1Handler(ctx: ActionCtx, request: Reques
     const familyRaw = url.searchParams.get("family");
     const channelRaw = url.searchParams.get("channel");
     const isOfficialRaw = url.searchParams.get("isOfficial");
+    const executesCodeRaw = url.searchParams.get("executesCode");
+    const capabilityTag = url.searchParams.get("capabilityTag")?.trim() || undefined;
     const results = await runQueryRef(ctx, apiRefs.packages.searchPublic, {
       query: queryText,
       limit,
@@ -268,16 +267,21 @@ export async function packagesGetRouterV1Handler(ctx: ActionCtx, request: Reques
           : undefined,
       isOfficial:
         isOfficialRaw === "true" ? true : isOfficialRaw === "false" ? false : undefined,
+      executesCode:
+        executesCodeRaw === "true" ? true : executesCodeRaw === "false" ? false : undefined,
+      capabilityTag,
     });
     return json({ results });
   }
 
   const packageName = segments[0] ?? "";
+  const viewerUserId = await getOptionalApiTokenUserId(ctx, request);
   const detail = (await runQueryRef(
     ctx,
     apiRefs.packages.getByName,
     {
-    name: packageName,
+      name: packageName,
+      viewerUserId: viewerUserId ?? undefined,
     },
   )) as
     | {
@@ -314,6 +318,7 @@ export async function packagesGetRouterV1Handler(ctx: ActionCtx, request: Reques
       continueCursor: string | null;
     }>(ctx, apiRefs.packages.listVersions, {
       name: packageName,
+      viewerUserId: viewerUserId ?? undefined,
       paginationOpts: { cursor, numItems: limit },
     });
     return json({
@@ -332,8 +337,9 @@ export async function packagesGetRouterV1Handler(ctx: ActionCtx, request: Reques
       ctx,
       apiRefs.packages.getVersionByName,
       {
-      name: packageName,
-      version: segments[2],
+        name: packageName,
+        version: segments[2],
+        viewerUserId: viewerUserId ?? undefined,
       },
     )) as { package: PublicPackageDocLike; version: ReleaseLike } | null;
     if (!result) return text("Version not found", 404);

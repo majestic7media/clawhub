@@ -96,10 +96,15 @@ export async function fetchPackages(params: {
   if (params.q?.trim()) {
     const url = packageApiUrl(`${ApiRoutes.packages}/search`);
     url.searchParams.set("q", params.q.trim());
+    if (typeof params.limit === "number") url.searchParams.set("limit", String(params.limit));
     if (params.family) url.searchParams.set("family", params.family);
     if (typeof params.isOfficial === "boolean") {
       url.searchParams.set("isOfficial", String(params.isOfficial));
     }
+    if (typeof params.executesCode === "boolean") {
+      url.searchParams.set("executesCode", String(params.executesCode));
+    }
+    if (params.capabilityTag) url.searchParams.set("capabilityTag", params.capabilityTag);
     return await fetchJson<{ results: Array<{ score: number; package: PackageListItem }> }>(url);
   }
 
