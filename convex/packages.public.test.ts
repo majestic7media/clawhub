@@ -186,7 +186,10 @@ function makeDigestCtx(options: {
   };
 }
 
-function makeInsertReleaseCtx(existing: Record<string, unknown> | null) {
+function makeInsertReleaseCtx(
+  existing: Record<string, unknown> | null,
+  priorReleases: Array<Record<string, unknown>> = [],
+) {
   const patch = vi.fn();
   const insert = vi
     .fn()
@@ -209,9 +212,16 @@ function makeInsertReleaseCtx(existing: Record<string, unknown> | null) {
         }
         if (table === "packageReleases") {
           return {
-            withIndex: vi.fn(() => ({
-              unique: vi.fn().mockResolvedValue(null),
-            })),
+            withIndex: vi.fn((indexName: string) => {
+              if (indexName === "by_package") {
+                return {
+                  collect: vi.fn().mockResolvedValue(priorReleases),
+                };
+              }
+              return {
+                unique: vi.fn().mockResolvedValue(null),
+              };
+            }),
           };
         }
         throw new Error(`Unexpected table ${table}`);
@@ -631,5 +641,38 @@ describe("packages public queries", () => {
         executesCode: true,
       }),
     );
+  });
+
+  it("removes moved dist-tags from older package releases", async () => {
+    const olderRelease = makeReleaseDoc({
+      _id: "packageReleases:old",
+      version: "1.0.0",
+      distTags: ["latest", "stable"],
+    });
+    const ctx = makeInsertReleaseCtx(
+      makePackageDoc({
+        tags: { latest: "packageReleases:old", stable: "packageReleases:old" },
+        latestReleaseId: "packageReleases:old",
+        stats: { downloads: 0, installs: 0, stars: 0, versions: 1 },
+      }),
+      [olderRelease],
+    );
+
+    await insertReleaseInternalHandler(ctx, {
+      userId: "users:owner",
+      name: "demo-plugin",
+      displayName: "Demo Plugin",
+      family: "code-plugin",
+      version: "1.1.0",
+      changelog: "promote",
+      tags: ["latest"],
+      summary: "demo",
+      files: [],
+      integritySha256: "abc123",
+    });
+
+    expect(ctx.patch).toHaveBeenCalledWith("packageReleases:old", {
+      distTags: ["stable"],
+    });
   });
 });

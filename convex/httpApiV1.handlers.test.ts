@@ -2405,6 +2405,64 @@ describe("httpApiV1 handlers", () => {
     );
   });
 
+  it("blocks file and download access to soft-deleted package releases", async () => {
+    const runMutation = vi.fn().mockResolvedValue(okRate());
+    const runQuery = vi.fn(async (_query: unknown, args: Record<string, unknown>) => {
+      if ("name" in args) {
+        return {
+          package: {
+            _id: "packages:1",
+            name: "demo-plugin",
+            displayName: "Demo Plugin",
+            family: "code-plugin",
+            tags: { latest: "packageReleases:deleted" },
+            latestReleaseId: "packageReleases:deleted",
+            channel: "community",
+            isOfficial: false,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          latestRelease: null,
+          owner: null,
+        };
+      }
+      if ("releaseId" in args || "version" in args) {
+        return {
+          _id: "packageReleases:deleted",
+          version: "1.0.0",
+          createdAt: 1,
+          changelog: "init",
+          distTags: ["latest"],
+          softDeletedAt: 10,
+          files: [
+            {
+              path: "README.md",
+              size: 2,
+              sha256: "a".repeat(64),
+              storageId: "storage:1",
+              contentType: "text/markdown",
+            },
+          ],
+        };
+      }
+      return null;
+    });
+
+    const fileResponse = await __handlers.packagesGetRouterV1Handler(
+      makeCtx({ runQuery, runMutation, storage: { get: vi.fn() } }),
+      new Request("https://example.com/api/v1/packages/demo-plugin/file?version=1.0.0&path=README.md"),
+    );
+    const downloadResponse = await __handlers.packagesGetRouterV1Handler(
+      makeCtx({ runQuery, runMutation, storage: { get: vi.fn() } }),
+      new Request("https://example.com/api/v1/packages/demo-plugin/download?tag=latest"),
+    );
+
+    expect(fileResponse.status).toBe(404);
+    expect(await fileResponse.text()).toBe("Version not found");
+    expect(downloadResponse.status).toBe(404);
+    expect(await downloadResponse.text()).toBe("Version not found");
+  });
+
   it("package publish uses write rate limiting", async () => {
     vi.mocked(getOptionalApiTokenUserId).mockResolvedValue("users:1" as never);
     vi.mocked(requireApiTokenUser).mockResolvedValue({

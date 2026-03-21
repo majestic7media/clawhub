@@ -68,7 +68,13 @@ type ReleaseLike = {
   capabilities?: Doc<"packageReleases">["capabilities"];
   verification?: Doc<"packageReleases">["verification"];
   integritySha256?: string;
+  softDeletedAt?: number;
 };
+
+function toVisibleRelease(release: ReleaseLike | null) {
+  if (!release || ("softDeletedAt" in release && release.softDeletedAt !== undefined)) return null;
+  return release;
+}
 
 async function resolvePackageTags(
   ctx: ActionCtx,
@@ -239,26 +245,32 @@ async function getReleaseForRequest(
   const tagParam = url.searchParams.get("tag")?.trim();
 
   if (versionParam) {
-    return await runQueryRef<ReleaseLike | null>(
-      ctx,
-      internalRefs.packages.getReleaseByPackageAndVersionInternal,
-      {
-        packageId: pkg._id,
-        version: versionParam,
-      },
+    return toVisibleRelease(
+      await runQueryRef<ReleaseLike | null>(
+        ctx,
+        internalRefs.packages.getReleaseByPackageAndVersionInternal,
+        {
+          packageId: pkg._id,
+          version: versionParam,
+        },
+      ),
     );
   }
   if (tagParam) {
     const releaseId = pkg.tags[tagParam];
     if (!releaseId) return null;
-    return await runQueryRef<ReleaseLike | null>(ctx, internalRefs.packages.getReleaseByIdInternal, {
-      releaseId,
-    });
+    return toVisibleRelease(
+      await runQueryRef<ReleaseLike | null>(ctx, internalRefs.packages.getReleaseByIdInternal, {
+        releaseId,
+      }),
+    );
   }
   if (!pkg.latestReleaseId) return null;
-  return await runQueryRef<ReleaseLike | null>(ctx, internalRefs.packages.getReleaseByIdInternal, {
-    releaseId: pkg.latestReleaseId,
-  });
+  return toVisibleRelease(
+    await runQueryRef<ReleaseLike | null>(ctx, internalRefs.packages.getReleaseByIdInternal, {
+      releaseId: pkg.latestReleaseId,
+    }),
+  );
 }
 
 export async function packagesGetRouterV1Handler(ctx: ActionCtx, request: Request) {

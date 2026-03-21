@@ -693,6 +693,12 @@ export const insertReleaseInternal = internalMutation({
         .unique();
       if (releaseExists) throw new ConvexError(`Version ${args.version} already exists`);
     }
+    const priorReleases = existing
+      ? await ctx.db
+          .query("packageReleases")
+          .withIndex("by_package", (q) => q.eq("packageId", existing._id))
+          .collect()
+      : [];
 
     const releaseId = await ctx.db.insert("packageReleases", {
       packageId: pkgId,
@@ -718,6 +724,11 @@ export const insertReleaseInternal = internalMutation({
     const nextTags = { ...pkg.tags };
     for (const tag of args.tags) nextTags[tag] = releaseId;
     const shouldPromoteLatest = args.tags.includes("latest") || !pkg.latestReleaseId;
+    for (const priorRelease of priorReleases) {
+      const nextDistTags = (priorRelease.distTags ?? []).filter((tag) => !args.tags.includes(tag));
+      if (nextDistTags.length === (priorRelease.distTags ?? []).length) continue;
+      await ctx.db.patch(priorRelease._id, { distTags: nextDistTags });
+    }
 
     await ctx.db.patch(pkgId, {
       displayName: args.displayName,

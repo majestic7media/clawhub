@@ -1,7 +1,7 @@
 /* @vitest-environment node */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchPackageReadme, fetchPackages } from "./packageApi";
+import { fetchPackageDetail, fetchPackageReadme, fetchPackages } from "./packageApi";
 
 describe("fetchPackages", () => {
   afterEach(() => {
@@ -79,5 +79,15 @@ describe("fetchPackages", () => {
     expect(first.searchParams.get("path")).toBe("README.md");
     expect(second.searchParams.get("path")).toBe("readme.md");
     expect(second.searchParams.get("version")).toBe("1.0.0");
+  });
+
+  it("returns an empty package detail payload on 404", async () => {
+    vi.stubEnv("VITE_CONVEX_URL", "https://registry.example");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not found", { status: 404 }));
+
+    await expect(fetchPackageDetail("missing-plugin")).resolves.toEqual({
+      package: null,
+      owner: null,
+    });
   });
 });

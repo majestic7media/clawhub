@@ -129,7 +129,18 @@ export async function fetchPackages(params: {
 
 export async function fetchPackageDetail(name: string) {
   const url = packageApiUrl(`${ApiRoutes.packages}/${encodeURIComponent(name)}`);
-  return await fetchJson<PackageDetailResponse>(url);
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: { Accept: "application/json" },
+  });
+  if (response.status === 404) {
+    return {
+      package: null,
+      owner: null,
+    } satisfies PackageDetailResponse;
+  }
+  if (!response.ok) throw new Error(await response.text());
+  return (await response.json()) as PackageDetailResponse;
 }
 
 export async function fetchPackageVersion(name: string, version: string) {

@@ -41,7 +41,9 @@ function PublishPackageRoute() {
   const totalBytes = useMemo(() => files.reduce((sum, file) => sum + file.size, 0), [files]);
 
   const onPickFiles = async (selected: File[]) => {
-    const expanded = await expandFilesWithReport(selected);
+    const expanded = await expandFilesWithReport(selected, {
+      includeBinaryArchiveFiles: true,
+    });
     setFiles(expanded.files);
     setError(null);
 
