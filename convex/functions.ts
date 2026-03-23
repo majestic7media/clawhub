@@ -33,7 +33,6 @@ function isMissingTableError(error: unknown, table: string) {
 
 type PackageDigestSyncCtx = Pick<MutationCtx, "db">;
 type OwnerPublisherDigestScheduleCtx = Pick<MutationCtx, "scheduler">;
-type ScheduledMutationRef = Parameters<MutationCtx["scheduler"]["runAfter"]>[1];
 type LatestPackageRelease = Pick<
   Doc<"packageReleases">,
   | "_id"
@@ -242,20 +241,14 @@ export async function scheduleOwnerPublisherDigestSync(
   ownerPublisherId: Id<"publishers"> | null | undefined,
 ) {
   if (!ownerPublisherId) return;
-  const ownerPublisherDigestSyncInternal = internal as unknown as {
-    functions: {
-      syncPackageSearchDigestsForOwnerPublisherIdInternal: ScheduledMutationRef;
-      syncSkillSearchDigestsForOwnerPublisherIdInternal: ScheduledMutationRef;
-    };
-  };
   await ctx.scheduler.runAfter(
     0,
-    ownerPublisherDigestSyncInternal.functions.syncPackageSearchDigestsForOwnerPublisherIdInternal,
+    internal.functions.syncPackageSearchDigestsForOwnerPublisherIdInternal,
     { ownerPublisherId },
   );
   await ctx.scheduler.runAfter(
     0,
-    ownerPublisherDigestSyncInternal.functions.syncSkillSearchDigestsForOwnerPublisherIdInternal,
+    internal.functions.syncSkillSearchDigestsForOwnerPublisherIdInternal,
     { ownerPublisherId },
   );
 }

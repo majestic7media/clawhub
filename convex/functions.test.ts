@@ -9,8 +9,6 @@ import {
   syncPackageSearchDigestsForOwnerUserId,
 } from "./functions";
 
-type InternalFunctionRef = unknown;
-
 describe("package digest sync", () => {
   it("clears latestVersion when the current package release is soft-deleted", async () => {
     const pkg = {
@@ -508,12 +506,6 @@ describe("package digest sync", () => {
 
 describe("publisher digest scheduling", () => {
   it("schedules package and skill digest sync in separate background mutations", async () => {
-    const ownerPublisherDigestSyncInternal = internal as unknown as {
-      functions: {
-        syncPackageSearchDigestsForOwnerPublisherIdInternal: InternalFunctionRef;
-        syncSkillSearchDigestsForOwnerPublisherIdInternal: InternalFunctionRef;
-      };
-    };
     const ctx = {
       scheduler: {
         runAfter: vi.fn().mockResolvedValue(undefined),
@@ -526,13 +518,13 @@ describe("publisher digest scheduling", () => {
     expect(ctx.scheduler.runAfter).toHaveBeenNthCalledWith(
       1,
       0,
-      ownerPublisherDigestSyncInternal.functions.syncPackageSearchDigestsForOwnerPublisherIdInternal,
+      internal.functions.syncPackageSearchDigestsForOwnerPublisherIdInternal,
       { ownerPublisherId: "publishers:demo" },
     );
     expect(ctx.scheduler.runAfter).toHaveBeenNthCalledWith(
       2,
       0,
-      ownerPublisherDigestSyncInternal.functions.syncSkillSearchDigestsForOwnerPublisherIdInternal,
+      internal.functions.syncSkillSearchDigestsForOwnerPublisherIdInternal,
       { ownerPublisherId: "publishers:demo" },
     );
   });
