@@ -2,6 +2,10 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useAction, useMutation } from "convex/react";
 import { startTransition, useMemo, useState } from "react";
 import { api } from "../../../convex/_generated/api";
+import {
+  MAX_PUBLISH_FILE_BYTES,
+  MAX_PUBLISH_TOTAL_BYTES,
+} from "../../../convex/lib/publishLimits";
 import { expandDroppedItems, expandFilesWithReport } from "../../lib/uploadFiles";
 import { buildPackageUploadEntries, filterIgnoredPackageFiles } from "../../lib/packageUpload";
 import { useAuthStatus } from "../../lib/useAuthStatus";
@@ -40,6 +44,20 @@ function PublishPluginRoute() {
   const [error, setError] = useState<string | null>(null);
 
   const totalBytes = useMemo(() => files.reduce((sum, file) => sum + file.size, 0), [files]);
+  const oversizedFiles = useMemo(
+    () => files.filter((file) => file.size > MAX_PUBLISH_FILE_BYTES),
+    [files],
+  );
+  const oversizedFileNames = useMemo(
+    () => oversizedFiles.slice(0, 3).map((file) => file.name),
+    [oversizedFiles],
+  );
+  const validationError =
+    oversizedFiles.length > 0
+      ? `Each file must be 10MB or smaller: ${oversizedFileNames.join(", ")}`
+      : totalBytes > MAX_PUBLISH_TOTAL_BYTES
+        ? "Total file size exceeds 50MB."
+        : null;
 
   const onPickFiles = async (selected: File[]) => {
     const expanded = await expandFilesWithReport(selected, {
@@ -148,6 +166,7 @@ function PublishPluginRoute() {
         />
         <div className="tag">{files.length} files · {formatBytes(totalBytes)}</div>
         {ignoredPaths.length > 0 ? <div className="tag">Ignored {ignoredPaths.length} files via ignore rules.</div> : null}
+        {validationError ? <div className="tag tag-accent">{validationError}</div> : null}
         <button
           className="btn"
           type="button"
@@ -156,6 +175,7 @@ function PublishPluginRoute() {
             !name.trim() ||
             !version.trim() ||
             files.length === 0 ||
+            Boolean(validationError) ||
             Boolean(status) ||
             (family === "code-plugin" && (!sourceRepo.trim() || !sourceCommit.trim()))
           }
@@ -163,6 +183,10 @@ function PublishPluginRoute() {
             startTransition(() => {
               void (async () => {
                 try {
+                  if (validationError) {
+                    setError(validationError);
+                    return;
+                  }
                   setStatus("Uploading files…");
                   setError(null);
                   const uploaded = await buildPackageUploadEntries(files, {

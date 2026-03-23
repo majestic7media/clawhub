@@ -29,8 +29,13 @@ import {
 } from "./skills";
 import { generateSkillSummary } from "./skillSummary";
 import type { WebhookSkillPayload } from "./webhooks";
+import {
+  findOversizedPublishFile,
+  getPublishFileSizeError,
+  getPublishTotalSizeError,
+  MAX_PUBLISH_TOTAL_BYTES,
+} from "./publishLimits";
 
-const MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const MAX_FILES_FOR_EMBEDDING = 40;
 const QUALITY_WINDOW_MS = 24 * 60 * 60 * 1000;
 const QUALITY_ACTIVITY_LIMIT = 60;
@@ -119,9 +124,14 @@ export async function publishVersionForUser(
     throw new ConvexError("Only text-based files are allowed");
   }
 
+  const oversizedFile = findOversizedPublishFile(publishFiles);
+  if (oversizedFile) {
+    throw new ConvexError(getPublishFileSizeError(oversizedFile.path));
+  }
+
   const totalBytes = publishFiles.reduce((sum, file) => sum + file.size, 0);
-  if (totalBytes > MAX_TOTAL_BYTES) {
-    throw new ConvexError("Skill bundle exceeds 50MB limit");
+  if (totalBytes > MAX_PUBLISH_TOTAL_BYTES) {
+    throw new ConvexError(getPublishTotalSizeError("skill bundle"));
   }
 
   const readmeFile = publishFiles.find(

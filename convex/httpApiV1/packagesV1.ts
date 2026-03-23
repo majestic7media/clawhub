@@ -5,6 +5,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { getOptionalApiTokenUserId } from "../lib/apiTokenAuth";
 import { corsHeaders, mergeHeaders } from "../lib/httpHeaders";
+import { getPublishFileSizeError, MAX_PUBLISH_FILE_BYTES } from "../lib/publishLimits";
 import { applyRateLimit } from "../lib/httpRateLimit";
 import { buildDeterministicPackageZip } from "../lib/skillZip";
 import { isMacJunkPath, isTextFile } from "../lib/skills";
@@ -399,6 +400,9 @@ async function parseMultipartPackagePublish(ctx: ActionCtx, request: Request) {
   for (const entry of form.getAll("files")) {
     if (typeof entry === "string") continue;
     if (isMacJunkPath(entry.name)) continue;
+    if (entry.size > MAX_PUBLISH_FILE_BYTES) {
+      throw new Error(getPublishFileSizeError(entry.name));
+    }
     const buffer = new Uint8Array(await entry.arrayBuffer());
     const digest = await crypto.subtle.digest("SHA-256", buffer);
     const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");

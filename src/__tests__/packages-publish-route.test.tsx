@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
-import { vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute:
@@ -301,5 +301,36 @@ describe("plugins publish route", () => {
       "package.json",
       "src/index.js",
     ]);
+  });
+
+  it("blocks plugin publish when a file exceeds 10MB", async () => {
+    renderPublishRoute();
+
+    const packageJson = withRelativePath(
+      new File([JSON.stringify({ name: "demo-plugin", version: "1.0.0" })], "package.json", {
+        type: "application/json",
+      }),
+      "demo-plugin/package.json",
+    );
+    const manifest = withRelativePath(
+      new File(['{"id":"demo.plugin"}'], "openclaw.plugin.json", { type: "application/json" }),
+      "demo-plugin/openclaw.plugin.json",
+    );
+    const huge = withRelativePath(
+      new File(["x"], "plugin.wasm", { type: "application/wasm" }),
+      "demo-plugin/dist/plugin.wasm",
+    );
+    Object.defineProperty(huge, "size", {
+      value: 10 * 1024 * 1024 + 1,
+      configurable: true,
+    });
+
+    fireEvent.change(getFileInput(), { target: { files: [packageJson, manifest, huge] } });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Each file must be 10MB or smaller: plugin\.wasm/i)).toBeTruthy();
+    });
+    expect(screen.getByRole("button", { name: "Publish" }).getAttribute("disabled")).not.toBeNull();
+    expect(publishRelease).not.toHaveBeenCalled();
   });
 });

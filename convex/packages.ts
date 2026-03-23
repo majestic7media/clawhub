@@ -25,10 +25,15 @@ import {
   readOptionalTextFile,
   summarizePackageForSearch,
 } from "./lib/packageRegistry";
+import {
+  findOversizedPublishFile,
+  getPublishFileSizeError,
+  getPublishTotalSizeError,
+  MAX_PUBLISH_TOTAL_BYTES,
+} from "./lib/publishLimits";
 import { toPublicUser } from "./lib/public";
 import { hashSkillFiles } from "./lib/skills";
 
-const MAX_PACKAGE_BYTES = 50 * 1024 * 1024;
 const MAX_PACKAGE_SCAN_DOCUMENTS = 30_000;
 const MAX_PUBLIC_LIST_SCAN_PAGES = 200;
 const MAX_SEARCH_PAGE_SIZE = 200;
@@ -978,9 +983,13 @@ async function publishPackageImpl(
   const version = assertPackageVersion(family, payload.version);
   const displayName = payload.displayName?.trim() || name;
   const files = normalizePublishFiles(payload.files as never);
+  const oversizedFile = findOversizedPublishFile(files);
+  if (oversizedFile) {
+    throw new ConvexError(getPublishFileSizeError(oversizedFile.path));
+  }
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-  if (totalBytes > MAX_PACKAGE_BYTES) {
-    throw new ConvexError("Package exceeds 50MB limit");
+  if (totalBytes > MAX_PUBLISH_TOTAL_BYTES) {
+    throw new ConvexError(getPublishTotalSizeError("package"));
   }
 
   const existingSkill = await runQueryRef(ctx, internalRefs.skills.getSkillBySlugInternal, {

@@ -8,6 +8,10 @@ import { useAction, useMutation, useQuery } from "convex/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import semver from "semver";
 import { api } from "../../convex/_generated/api";
+import {
+  MAX_PUBLISH_FILE_BYTES,
+  MAX_PUBLISH_TOTAL_BYTES,
+} from "../../convex/lib/publishLimits";
 import { getSiteMode } from "../lib/site";
 import { getPublicSlugCollision } from "../lib/slugCollision";
 import { expandDroppedItems, expandFilesWithReport } from "../lib/uploadFiles";
@@ -92,7 +96,6 @@ export function Upload() {
   };
   const validationRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
-  const maxBytes = 50 * 1024 * 1024;
   const totalBytes = useMemo(() => files.reduce((sum, file) => sum + file.size, 0), [files]);
   const stripRoot = useMemo(() => {
     if (files.length === 0) return null;
@@ -123,6 +126,14 @@ export function Upload() {
     [isSoulMode, normalizedPaths],
   );
   const sizeLabel = totalBytes ? formatBytes(totalBytes) : "0 B";
+  const oversizedFiles = useMemo(
+    () => files.filter((file) => file.size > MAX_PUBLISH_FILE_BYTES),
+    [files],
+  );
+  const oversizedFileNames = useMemo(
+    () => oversizedFiles.slice(0, 3).map((file) => file.name),
+    [oversizedFiles],
+  );
   const ignoredMacJunkNote = useMemo(() => {
     if (ignoredMacJunkPaths.length === 0) return null;
     const labels = Array.from(
@@ -266,7 +277,10 @@ export function Upload() {
           .join(", ")}`,
       );
     }
-    if (totalBytes > maxBytes) {
+    if (oversizedFiles.length > 0) {
+      issues.push(`Each file must be 10MB or smaller: ${oversizedFileNames.join(", ")}`);
+    }
+    if (totalBytes > MAX_PUBLISH_TOTAL_BYTES) {
       issues.push("Total file size exceeds 50MB.");
     }
     if (slugCollision) {
@@ -286,6 +300,8 @@ export function Upload() {
     hasRequiredFile,
     isSoulMode,
     totalBytes,
+    oversizedFiles.length,
+    oversizedFileNames,
     requiredFileLabel,
     slugCollision,
   ]);
@@ -325,7 +341,11 @@ export function Upload() {
       return;
     }
     setError(null);
-    if (totalBytes > maxBytes) {
+    if (oversizedFiles.length > 0) {
+      setError(`Each file must be 10MB or smaller: ${oversizedFileNames.join(", ")}`);
+      return;
+    }
+    if (totalBytes > MAX_PUBLISH_TOTAL_BYTES) {
       setError("Total size exceeds 50MB per version.");
       return;
     }
