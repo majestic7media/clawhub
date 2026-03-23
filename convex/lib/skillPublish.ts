@@ -7,7 +7,6 @@ import { getSkillBadgeMap, isSkillHighlighted } from "./badges";
 import { generateChangelogForPublish } from "./changelog";
 import { generateEmbedding } from "./embeddings";
 import { requireGitHubAccountAge } from "./githubAccount";
-import { runStaticModerationScan } from "./moderationEngine";
 import type { PublicUser } from "./public";
 import {
   computeQualitySignals,
@@ -28,6 +27,7 @@ import {
   sanitizePath,
 } from "./skills";
 import { generateSkillSummary } from "./skillSummary";
+import { runStaticPublishScan } from "./staticPublishScan";
 import type { WebhookSkillPayload } from "./webhooks";
 import {
   findOversizedPublishFile,
@@ -231,14 +231,13 @@ export async function publishVersionForUser(
     .filter((file) => !file.path.toLowerCase().endsWith(".md"))
     .slice(0, MAX_FILES_FOR_EMBEDDING);
 
-  const staticScan = runStaticModerationScan({
+  const staticScan = await runStaticPublishScan(ctx, {
     slug,
     displayName,
     summary,
     frontmatter,
     metadata,
-    files: publishFiles.map((file) => ({ path: file.path, size: file.size })),
-    fileContents,
+    files: publishFiles,
   });
 
   const embeddingText = buildEmbeddingText({

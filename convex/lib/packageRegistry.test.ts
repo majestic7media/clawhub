@@ -49,6 +49,7 @@ describe("packageRegistry", () => {
     expect(result.capabilities.executesCode).toBe(true);
     expect(result.capabilities.toolNames).toContain("demoTool");
     expect(result.verification.tier).toBe("source-linked");
+    expect(result.verification.scanStatus).toBe("not-run");
   });
 
   it("requires source metadata for code plugins", () => {

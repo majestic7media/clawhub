@@ -100,6 +100,7 @@ const insertReleaseInternalHandler = (
       compatibility?: unknown;
       capabilities?: unknown;
       verification?: unknown;
+      staticScan?: unknown;
       extractedPackageJson?: unknown;
       extractedPluginManifest?: unknown;
       normalizedBundleManifest?: unknown;
@@ -1336,12 +1337,27 @@ describe("packages public queries", () => {
       summary: "demo",
       files: [],
       integritySha256: "abc123",
+      verification: {
+        tier: "source-linked",
+        scope: "artifact-only",
+        scanStatus: "suspicious",
+      },
+      staticScan: {
+        status: "suspicious",
+        reasonCodes: ["suspicious.dynamic_code_execution"],
+        findings: [],
+        summary: "Detected: suspicious.dynamic_code_execution",
+        engineVersion: "test",
+        checkedAt: 123,
+      },
     });
 
     expect(ctx.insert).toHaveBeenCalledWith(
       "packageReleases",
       expect.objectContaining({
         distTags: ["beta", "latest"],
+        verification: expect.objectContaining({ scanStatus: "suspicious" }),
+        staticScan: expect.objectContaining({ status: "suspicious" }),
       }),
     );
     expect(ctx.patch).toHaveBeenCalledWith(
@@ -1382,6 +1398,97 @@ describe("packages public queries", () => {
         },
       }),
     ).rejects.toThrow("Skill packages must use the skills publish flow");
+  });
+
+  it("scans plugin publishes and forwards scan status to insertReleaseInternal", async () => {
+    const runMutation = vi.fn(async (_ref: unknown, args: unknown) => args);
+    const ctx = {
+      runQuery: vi
+        .fn()
+        .mockResolvedValueOnce({
+          _id: "users:owner",
+          githubCreatedAt: Date.now() - 20 * 24 * 60 * 60 * 1000,
+        })
+        .mockResolvedValueOnce(null),
+      runMutation,
+      scheduler: {
+        runAfter: vi.fn(),
+      },
+      storage: {
+        get: vi.fn(async (storageId: string) => {
+          const files = new Map<string, string>([
+            [
+              "storage:package",
+              JSON.stringify({
+                name: "demo-plugin",
+                openclaw: {
+                  extensions: ["./dist/index.js"],
+                  compat: { pluginApi: "^1.0.0" },
+                  build: { openclawVersion: "2026.3.14" },
+                  configSchema: { type: "object" },
+                },
+              }),
+            ],
+            ["storage:manifest", JSON.stringify({ id: "demo.plugin", tools: [{ name: "demoTool" }] })],
+            ["storage:code", "import { execSync } from 'node:child_process';\nexecSync('curl http://x');\n"],
+          ]);
+          const content = files.get(storageId);
+          return content ? new Blob([content]) : null;
+        }),
+      },
+    };
+
+    const result = (await publishPackageForUserInternalHandler(ctx as never, {
+      userId: "users:owner",
+      payload: {
+        name: "demo-plugin",
+        displayName: "Demo Plugin",
+        family: "code-plugin",
+        version: "1.0.0",
+        changelog: "init",
+        source: {
+          kind: "github",
+          url: "https://github.com/openclaw/demo-plugin",
+          repo: "openclaw/demo-plugin",
+          ref: "refs/tags/v1.0.0",
+          commit: "abc123",
+          path: ".",
+          importedAt: Date.now(),
+        },
+        files: [
+          {
+            path: "package.json",
+            size: 1,
+            storageId: "storage:package",
+            sha256: "package",
+            contentType: "application/json",
+          },
+          {
+            path: "openclaw.plugin.json",
+            size: 1,
+            storageId: "storage:manifest",
+            sha256: "manifest",
+            contentType: "application/json",
+          },
+          {
+            path: "dist/index.js",
+            size: 1,
+            storageId: "storage:code",
+            sha256: "code",
+            contentType: "application/javascript",
+          },
+        ],
+      },
+    })) as Record<string, unknown>;
+
+    expect(runMutation).toHaveBeenCalled();
+    expect(result.verification).toEqual(expect.objectContaining({ scanStatus: "suspicious" }));
+    expect(result.staticScan).toEqual(
+      expect.objectContaining({
+        status: "suspicious",
+        reasonCodes: expect.arrayContaining(["suspicious.dangerous_exec"]),
+      }),
+    );
   });
 
   it("requires auth inside the public publish action", async () => {

@@ -125,6 +125,10 @@ type ReleaseLike = {
   compatibility?: Doc<"packageReleases">["compatibility"];
   capabilities?: Doc<"packageReleases">["capabilities"];
   verification?: Doc<"packageReleases">["verification"];
+  sha256hash?: string;
+  vtAnalysis?: Doc<"packageReleases">["vtAnalysis"];
+  llmAnalysis?: Doc<"packageReleases">["llmAnalysis"];
+  staticScan?: Doc<"packageReleases">["staticScan"];
   integritySha256?: string;
   softDeletedAt?: number;
 };
@@ -132,6 +136,27 @@ type ReleaseLike = {
 function toVisibleRelease(release: ReleaseLike | null) {
   if (!release || ("softDeletedAt" in release && release.softDeletedAt !== undefined)) return null;
   return release;
+}
+
+function getReleaseSecurityBlock(release: ReleaseLike) {
+  if (
+    release.vtAnalysis?.status === "malicious" ||
+    release.verification?.scanStatus === "malicious" ||
+    release.staticScan?.status === "malicious"
+  ) {
+    return {
+      status: 403,
+      message: "Blocked: this package release has been flagged as malicious and cannot be downloaded.",
+    };
+  }
+  const vtStatus = release.vtAnalysis?.status?.trim().toLowerCase();
+  if (release.sha256hash && (!vtStatus || vtStatus === "pending")) {
+    return {
+      status: 423,
+      message: "This package release is pending a security scan by VirusTotal. Please try again in a few minutes.",
+    };
+  }
+  return null;
 }
 
 async function resolvePackageTags(
@@ -973,6 +998,8 @@ export async function packagesGetRouterV1Handler(ctx: ActionCtx, request: Reques
     }
     const release = await getReleaseForRequest(ctx, publicPackage!, request);
     if (!release) return text("Version not found", 404, rate.headers);
+    const securityBlock = getReleaseSecurityBlock(release);
+    if (securityBlock) return text(securityBlock.message, securityBlock.status, rate.headers);
     const file = release.files.find((entry) => entry.path === path);
     if (!file) return text("File not found", 404, rate.headers);
     if (!isTextFile(file.path, file.contentType)) {
@@ -1008,6 +1035,8 @@ export async function packagesGetRouterV1Handler(ctx: ActionCtx, request: Reques
     }
     const release = await getReleaseForRequest(ctx, publicPackage!, request);
     if (!release) return text("Version not found", 404, rate.headers);
+    const securityBlock = getReleaseSecurityBlock(release);
+    if (securityBlock) return text(securityBlock.message, securityBlock.status, rate.headers);
     const entries: Array<{ path: string; bytes: Uint8Array }> = [];
     for (const file of release.files) {
       const blob = await ctx.storage.get(file.storageId);

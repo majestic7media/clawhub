@@ -615,6 +615,57 @@ const packageReleases = defineTable({
   compatibility: packageCompatibilityValidator,
   capabilities: packageCapabilitiesValidator,
   verification: packageVerificationValidator,
+  sha256hash: v.optional(v.string()),
+  vtAnalysis: v.optional(
+    v.object({
+      status: v.string(),
+      verdict: v.optional(v.string()),
+      analysis: v.optional(v.string()),
+      source: v.optional(v.string()),
+      checkedAt: v.number(),
+    }),
+  ),
+  llmAnalysis: v.optional(
+    v.object({
+      status: v.string(),
+      verdict: v.optional(v.string()),
+      confidence: v.optional(v.string()),
+      summary: v.optional(v.string()),
+      dimensions: v.optional(
+        v.array(
+          v.object({
+            name: v.string(),
+            label: v.string(),
+            rating: v.string(),
+            detail: v.string(),
+          }),
+        ),
+      ),
+      guidance: v.optional(v.string()),
+      findings: v.optional(v.string()),
+      model: v.optional(v.string()),
+      checkedAt: v.number(),
+    }),
+  ),
+  staticScan: v.optional(
+    v.object({
+      status: v.union(v.literal("clean"), v.literal("suspicious"), v.literal("malicious")),
+      reasonCodes: v.array(v.string()),
+      findings: v.array(
+        v.object({
+          code: v.string(),
+          severity: v.union(v.literal("info"), v.literal("warn"), v.literal("critical")),
+          file: v.string(),
+          line: v.number(),
+          message: v.string(),
+          evidence: v.string(),
+        }),
+      ),
+      summary: v.string(),
+      engineVersion: v.string(),
+      checkedAt: v.number(),
+    }),
+  ),
   source: v.optional(v.any()),
   createdBy: v.id("users"),
   createdAt: v.number(),
@@ -622,7 +673,8 @@ const packageReleases = defineTable({
 })
   .index("by_package", ["packageId"])
   .index("by_package_active_created", ["packageId", "softDeletedAt", "createdAt"])
-  .index("by_package_version", ["packageId", "version"]);
+  .index("by_package_version", ["packageId", "version"])
+  .index("by_sha256hash", ["sha256hash"]);
 
 const packageSearchDigest = defineTable({
   packageId: v.id("packages"),
