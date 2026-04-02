@@ -57,15 +57,28 @@ export const searchInternal = internalQuery({
     assertAdmin(actor);
 
     const limit = clampInt(args.limit ?? 20, 1, MAX_USER_LIST_LIMIT);
-    const result = await queryUsersForAdminList(ctx, { limit, search: args.query });
-    const items = result.items.map((user) => ({
+    const exactHandleUser = args.query
+      ? await getActiveUserByHandleOrPersonalPublisher(ctx, args.query)
+      : null;
+    const result = await queryUsersForAdminList(ctx, {
+      limit,
+      search: args.query,
+      exactUserId: exactHandleUser?._id,
+    });
+    const dedupedUsers = exactHandleUser
+      ? [exactHandleUser, ...result.items.filter((user) => user._id !== exactHandleUser._id)]
+      : result.items;
+    const total = exactHandleUser
+      ? result.total + (result.containsExactUser ? 0 : 1)
+      : result.total;
+    const items = dedupedUsers.slice(0, limit).map((user) => ({
       userId: user._id,
       handle: user.handle ?? null,
       displayName: user.displayName ?? null,
       name: user.name ?? null,
       role: user.role ?? null,
     }));
-    return { items, total: result.total };
+    return { items, total };
   },
 });
 
@@ -374,19 +387,25 @@ async function queryUsersForAdminList(
       };
     };
   },
-  args: { limit: number; search?: string },
+  args: { limit: number; search?: string; exactUserId?: Id<"users"> },
 ) {
   const normalizedSearch = normalizeSearchQuery(args.search);
   const orderedUsers = ctx.db.query("users").order("desc");
 
   if (!normalizedSearch) {
     const items = await orderedUsers.take(args.limit);
-    return { items, total: items.length };
+    return { items, total: items.length, containsExactUser: false };
   }
 
   const scannedUsers = await orderedUsers.take(computeUserSearchScanLimit(args.limit));
   const result = buildUserSearchResults(scannedUsers, normalizedSearch);
-  return { items: result.items.slice(0, args.limit), total: result.total };
+  return {
+    items: result.items.slice(0, args.limit),
+    total: result.total,
+    containsExactUser: args.exactUserId
+      ? result.items.some((user) => user._id === args.exactUserId)
+      : false,
+  };
 }
 
 function clampInt(value: number, min: number, max: number) {
