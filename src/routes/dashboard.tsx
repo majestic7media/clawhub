@@ -287,14 +287,14 @@ function SkillRow({ skill, ownerHandle }: { skill: DashboardSkill; ownerHandle: 
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-[color:var(--ink-soft)]">
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex w-14 items-center justify-end gap-1 tabular-nums">
             <ArrowDownToLine size={13} aria-hidden="true" />{" "}
             {formatCompactStat(skill.stats.downloads)}
           </span>
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex w-14 items-center justify-end gap-1 tabular-nums">
             <Star size={13} aria-hidden="true" /> {formatCompactStat(skill.stats.stars)}
           </span>
-          <span className="inline-flex items-center gap-1">
+          <span className="inline-flex w-14 items-center justify-end gap-1 tabular-nums">
             <Package size={13} aria-hidden="true" /> {skill.stats.versions}
           </span>
         </div>

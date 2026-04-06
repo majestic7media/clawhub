@@ -245,7 +245,7 @@ function SoulsIndex() {
                       {soul.summary ?? "SOUL.md bundle."}
                     </div>
                   </div>
-                  <div className="flex shrink-0 items-center gap-4">
+                  <div className="flex shrink-0 items-center gap-3">
                     <SoulMetricsRow stats={soul.stats} />
                   </div>
                 </Link>
